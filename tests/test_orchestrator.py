@@ -101,3 +101,31 @@ class TestSearchOrchestrator(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHeuristicFirst(unittest.TestCase):
+    """Verify heuristic-first design: BO is optional, heuristics work alone."""
+
+    def test_works_without_bo(self):
+        orch = SearchOrchestrator(
+            _small_model(), _small_hw(), max_iterations=20, use_bo=False,
+        )
+        history = orch.run()
+        self.assertGreater(history.count, 0)
+        self.assertIsNotNone(history.best_config)
+        self.assertFalse(orch.use_bo)
+
+    def test_heuristic_policy_exists(self):
+        from xscale.orchestrator import HeuristicSearchPolicy
+        orch = SearchOrchestrator(_small_model(), _small_hw())
+        self.assertIsInstance(orch.heuristic, HeuristicSearchPolicy)
+
+    def test_bo_is_pluggable_upgrade(self):
+        from xscale.orchestrator import BayesianSearchPolicy
+        orch_bo = SearchOrchestrator(_small_model(), _small_hw(), use_bo=True, max_iterations=15)
+        orch_no_bo = SearchOrchestrator(_small_model(), _small_hw(), use_bo=False, max_iterations=15)
+        # Both should run
+        history_bo = orch_bo.run()
+        history_no_bo = orch_no_bo.run()
+        self.assertGreater(history_bo.count, 0)
+        self.assertGreater(history_no_bo.count, 0)
