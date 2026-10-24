@@ -16,6 +16,7 @@ See docs/xscale-skill-layer-design.md for the full design document.
 """
 
 from . import strategy_space
+from . import heuristic_rules
 from . import cost_model
 from . import structure
 from . import feedback
@@ -23,6 +24,7 @@ from . import evaluator
 
 __all__ = [
     "strategy_space",
+    "heuristic_rules",
     "cost_model",
     "structure",
     "feedback",
@@ -30,7 +32,8 @@ __all__ = [
 ]
 
 # Progress snapshot (updated as skills mature):
-#   S1 strategy_space : v0 in progress
+#   S1 strategy_space : v0 (seed + neighbors + hard constraints + heuristic ranking)
+#   S1b heuristic_rules: v0 (23 rules, 4 categories)
 #   S2 cost_model     : not started
 #   S3 structure      : v0 exists (witness module), defects known
 #   S4 feedback       : v0 exists (adaptive.py)

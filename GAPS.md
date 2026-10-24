@@ -59,6 +59,14 @@ implementation, ordered by priority.
 
 ## Medium-Priority Gaps (improve quality but not blocking)
 
+### G8: Heuristic bootstrap rules ✅ DONE
+- **Status:** Implemented in `skills/heuristic_rules.py`, integrated into S1
+- **Paper claim:** "System starts with domain-knowledge rules before any data"
+- **What was done:** 23 rules across 4 categories (hard constraints,
+  structural symmetries, performance heuristics, memory heuristics).
+  Integrated into S1 seeding, neighbor proposal, and witness estimation.
+- **Effort:** Small — done
+
 ### G5: RSS not explicitly named / scored
 - **Status:** Partitioning exists but not called "RSS score"
 - **Impact:** Naming inconsistency with paper
@@ -92,6 +100,7 @@ implementation, ordered by priority.
   - [ ] G3: S5 evaluator v0 (analytical)
   - [ ] G4: Trust tracker v0
   - [x] G1: Orchestrator + search loop (trust-calibrated, BO surrogate, four trust levels)
+  - [x] G8: Heuristic bootstrap rules (23 rules in 4 categories, integrated into S1)
   - [ ] Demo with simulated data
 
 - [ ] **Phase 2: Compression works correctly**

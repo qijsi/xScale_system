@@ -38,82 +38,19 @@ from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
-# Types
+# Types (defined in types.py, re-exported for backwards compatibility)
 # ---------------------------------------------------------------------------
 
+from .types import (
+    FeasibilityStatus,
+    HardwareDescriptor,
+    ModelDescriptor,
+    ParallelConfig,
+    SpaceUpdate,
+)
 
-class FeasibilityStatus(enum.Enum):
-    """How confident we are that a config can run.
+from . import heuristic_rules
 
-    Order matters: UNKNOWN < LIKELY_INFEASIBLE < FEASIBLE == INFEASIBLE (terminal).
-    """
-
-    UNKNOWN = "unknown"
-    LIKELY_FEASIBLE = "likely_feasible"
-    LIKELY_INFEASIBLE = "likely_infeasible"
-    FEASIBLE = "feasible"
-    INFEASIBLE = "infeasible"
-
-
-@dataclass(frozen=True)
-class ParallelConfig:
-    """A complete parallel execution strategy.
-
-    The tp*pp*dp*ep product must equal the target world size.
-    """
-
-    tp: int
-    pp: int
-    dp: int
-    ep: int
-    mbs: int
-    recompute: str  # "none" | "selective" | "full"
-
-    @property
-    def world_size(self) -> int:
-        return self.tp * self.pp * self.dp * self.ep
-
-    def __str__(self) -> str:
-        return f"tp{self.tp}_pp{self.pp}_dp{self.dp}_ep{self.ep}_mbs{self.mbs}_rc{self.recompute}"
-
-
-@dataclass(frozen=True)
-class ModelDescriptor:
-    """Model parameters relevant to strategy search."""
-
-    name: str
-    num_layers: int
-    hidden_size: int
-    num_heads: int
-    vocab_size: int
-    sequence_length: int
-    is_moe: bool
-    num_experts: int | None
-    expert_top_k: int | None
-    params_billion: float
-
-
-@dataclass(frozen=True)
-class HardwareDescriptor:
-    """Target hardware topology for which we search strategies."""
-
-    gpu_model: str
-    num_gpus: int
-    gpus_per_node: int
-    nvlink_bandwidth_gbps: float
-    internode_bandwidth_gbps: float
-    vram_per_gpu_gb: float
-    peak_tflops: float
-
-
-@dataclass
-class SpaceUpdate:
-    """Result of observing an execution outcome for one config."""
-
-    newly_feasible: list[ParallelConfig]
-    newly_infeasible: list[ParallelConfig]
-    propagated_infeasible: list[ParallelConfig]
-    new_coverage: float
 
 
 # ---------------------------------------------------------------------------
@@ -138,12 +75,18 @@ class EvolvingStrategySpace:
     def seed(self) -> list[ParallelConfig]:
         """Generate initial seed set and populate the space state.
 
+        Enumerates all topologically-valid configurations, filters with
+        hard constraints (H1–H7), classifies by conservative memory
+        estimate, and returns them sorted by heuristic priority so the
+        most promising candidates are evaluated first.
+
         Returns the list of seed configs placed in LIKELY_FEASIBLE state
         (passed the conservative memory check) or LIKELY_INFEASIBLE state
         (failed the check, still retained for later evaluation).
+        Configurations that violate hard constraints are not added at all.
         """
         world_size = self.hardware.num_gpus
-        seeds: list[ParallelConfig] = []
+        candidates: list[ParallelConfig] = []
         for tp in _divisors(world_size):
             rest = world_size // tp
             for pp in _divisors(rest):
@@ -154,16 +97,32 @@ class EvolvingStrategySpace:
                         continue
                     if not self.model.is_moe and ep != 1:
                         continue
-                    for mbs in (1, 2, 4, 8):
+                    for mbs in (1, 2, 4, 8, 16):
                         for recompute in ("none", "selective", "full"):
                             cfg = ParallelConfig(tp, pp, dp, ep, mbs, recompute)
-                            if self._conservative_memory_ok(cfg):
-                                self._status[cfg] = FeasibilityStatus.LIKELY_FEASIBLE
-                            else:
-                                self._status[cfg] = FeasibilityStatus.LIKELY_INFEASIBLE
-                                self._infeasibility_reason[cfg] = "conservative OOM estimate"
-                            seeds.append(cfg)
-        return seeds
+                            ok, reason = heuristic_rules.check_hard_constraints(
+                                cfg, self.model, self.hardware
+                            )
+                            if not ok:
+                                continue
+                            candidates.append(cfg)
+
+        # Sort by heuristic priority — most promising first
+        candidates.sort(
+            key=lambda c: heuristic_rules.heuristic_priority_score(
+                c, self.model, self.hardware
+            ),
+            reverse=True,
+        )
+
+        for cfg in candidates:
+            if self._conservative_memory_ok(cfg):
+                self._status[cfg] = FeasibilityStatus.LIKELY_FEASIBLE
+            else:
+                self._status[cfg] = FeasibilityStatus.LIKELY_INFEASIBLE
+                self._infeasibility_reason[cfg] = "conservative OOM estimate"
+
+        return candidates
 
     # -- neighborhood ------------------------------------------------------
 
@@ -213,15 +172,43 @@ class EvolvingStrategySpace:
                 cand = ParallelConfig(config.tp, config.pp, config.dp, config.ep, config.mbs, rc)
                 candidates.add(cand)
 
-        # Filter out already-decided configs
-        result = [
-            c for c in candidates
-            if self._status.get(c, FeasibilityStatus.UNKNOWN)
-            not in (FeasibilityStatus.FEASIBLE, FeasibilityStatus.INFEASIBLE)
-        ]
-        return sorted(result, key=str)
+        # Filter: hard constraints + not already decided
+        result = []
+        for c in candidates:
+            ok, _ = heuristic_rules.check_hard_constraints(
+                c, self.model, self.hardware
+            )
+            if not ok:
+                continue
+            if self._status.get(c, FeasibilityStatus.UNKNOWN) in (
+                FeasibilityStatus.FEASIBLE,
+                FeasibilityStatus.INFEASIBLE,
+            ):
+                continue
+            result.append(c)
+
+        # Sort by heuristic priority — most promising first
+        result.sort(
+            key=lambda c: heuristic_rules.heuristic_priority_score(
+                c, self.model, self.hardware
+            ),
+            reverse=True,
+        )
+        return result
 
     # -- feedback ----------------------------------------------------------
+
+    def estimate_witnesses(self, config: ParallelConfig) -> int:
+        """Estimate minimum witness ranks needed to evaluate ``config``.
+
+        Uses structural symmetry rules (S1–S4) to compute how many
+        unique rank types must run at full fidelity. Higher symmetry →
+        fewer witnesses → cheaper evaluation.
+        """
+        breakdown = heuristic_rules.estimate_witness_count(
+            config, self.model, self.hardware
+        )
+        return breakdown.total_witnesses
 
     def mark_result(
         self, config: ParallelConfig, feasible: bool, reason: str = ""
