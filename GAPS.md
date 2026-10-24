@@ -5,7 +5,7 @@ implementation, ordered by priority.
 
 ## Critical Gaps (block end-to-end system)
 
-### G1: No orchestrator / search loop
+### G1: No orchestrator / search loop ✅ DONE
 - **Status:** Missing entirely
 - **Paper claim:** "Trust-calibrated orchestrator coordinates five skill modules"
 - **What's needed:** An `Orchestrator` class with the main search loop
@@ -91,7 +91,7 @@ implementation, ordered by priority.
   - [ ] G2: S2 cost model v0
   - [ ] G3: S5 evaluator v0 (analytical)
   - [ ] G4: Trust tracker v0
-  - [ ] G1: Orchestrator + search loop
+  - [x] G1: Orchestrator + search loop (trust-calibrated, BO surrogate, four trust levels)
   - [ ] Demo with simulated data
 
 - [ ] **Phase 2: Compression works correctly**
