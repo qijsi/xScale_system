@@ -6,7 +6,7 @@ implementation, ordered by priority.
 ## Critical Gaps (block end-to-end system)
 
 ### G1: No orchestrator / search loop ✅ DONE
-- **Status:** Missing entirely
+- **Status:** Synthetic orchestrator implemented; production evaluator integration remains open
 - **Paper claim:** "Trust-calibrated orchestrator coordinates five skill modules"
 - **What's needed:** An `Orchestrator` class with the main search loop
   (Algorithm 1 from the paper), managing trust level, acquisition,
@@ -27,8 +27,8 @@ implementation, ordered by priority.
   standardized ExecutionResult. Required before the loop can run.
 - **Effort:** Small — 0.5 days
 
-### G4: Trust level / calibration mechanism missing
-- **Status:** Adaptive controller exists but no trust levels (L0-L3)
+### G4: Trust tracking implemented; measurement integration missing
+- **Status:** TrustTracker and L0-L3 exist in orchestrator.py; adaptive.py is separate and production calibration is not wired
 - **Paper claim:** "Four trust levels governing orchestration"
 - **What's needed:** A TrustTracker that computes trust from prediction
   accuracy, evaluation count, and diversity. Integrates with fidelity
@@ -62,7 +62,7 @@ implementation, ordered by priority.
 ### G8: Heuristic bootstrap rules ✅ DONE
 - **Status:** Implemented in `skills/heuristic_rules.py`, integrated into S1
 - **Paper claim:** "System starts with domain-knowledge rules before any data"
-- **What was done:** 23 rules across 4 categories (hard constraints,
+- **What was done:** 40 named rules across 4 categories (hard constraints,
   structural symmetries, performance heuristics, memory heuristics).
   Integrated into S1 seeding, neighbor proposal, and witness estimation.
 - **Effort:** Small — done
@@ -98,9 +98,9 @@ implementation, ordered by priority.
 - [ ] **Phase 1: End-to-end loop works**
   - [ ] G2: S2 cost model v0
   - [ ] G3: S5 evaluator v0 (analytical)
-  - [ ] G4: Trust tracker v0
+  - [x] G4: Heuristic TrustTracker v0 (not statistically calibrated)
   - [x] G1: Orchestrator + search loop (trust-calibrated, BO surrogate, four trust levels)
-  - [x] G8: Heuristic bootstrap rules (23 rules in 4 categories, integrated into S1)
+  - [x] G8: Heuristic bootstrap rules (40 named rules in 4 categories, integrated into S1)
   - [ ] Demo with simulated data
 
 - [ ] **Phase 2: Compression works correctly**
@@ -117,3 +117,8 @@ implementation, ordered by priority.
   - [ ] G5: Explicit RSS scoring
   - [ ] Cross-workload transfer
   - [ ] Full ablation suite
+
+
+## Evidence update — 2026-10-25
+
+See [docs/project-alignment-status.md](docs/project-alignment-status.md). The loop defaults to a mock evaluator, REAL/REPLAY labels do not prove hardware execution, and budget accounting is estimated. All 85 focused tests pass in the CrystalLLM integration. No measured 95% recall or 10--50x speedup is established.

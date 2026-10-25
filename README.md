@@ -4,11 +4,8 @@ Self-evolving parallel strategy search for large-scale LLM training on limited G
 
 ## Overview
 
-xScale finds efficient parallel execution strategies for large-scale LLM
-training using a trust-calibrated self-evolving loop. It starts knowing
-nothing and evaluates candidates at full fidelity; as data accumulates,
-it gradually learns to trust its cost model and shifts evaluation to
-cheaper abstraction tiers.
+xScale is a research prototype for finding efficient parallel execution strategies for large-scale LLM
+training using a trust-calibrated self-evolving loop. Its current orchestrator uses domain heuristics, optional BO, and heuristic trust tracking. The default evaluator is synthetic; S2/S5 and CrystalLLM integration remain incomplete.
 
 ## Architecture
 
@@ -19,13 +16,13 @@ Five skill modules:
 | **S1** | Strategy Space | v0 | ✅ Implemented |
 | **S2** | Cost Model | v0 | ⚠️ Stub only |
 | **S3** | Structure (RSS/FIS/CEC) | v0 | ⚠️ Known defects |
-| **S4** | Feedback + Trust Calibration | v0 | ⚠️ No trust levels yet |
+| **S4** | Feedback + Trust Calibration | v0 | ⚠️ Adaptive controller + heuristic TrustTracker; integration pending |
 | **S5** | Evaluator | v0 | ⚠️ Stub only |
 
 Three compression metrics:
-- **RSS** (Rank Substitutability Score) — how interchangeable ranks are
+- **RSS** (Rank Substitutability Score) — proposed metric; explicit scoring is not implemented
 - **FIS** (Fidelity Impact Score) — how sensitive ranking is to compressing each op
-- **CEC** (Compressed Execution Confidence) — bounds ranking correctness
+- **CEC** (Compressed Execution Confidence) — heuristic REAL fraction minus boundary penalty; no probability bound
 
 Four trust levels (L0 → L3): Exploration → Calibrating → Confident → Verifying.
 
@@ -53,3 +50,7 @@ docs/
 ## Related Paper
 
 Companion paper repository: [github.com/qijsi/xScale](https://github.com/qijsi/xScale)
+
+## Current evidence
+
+See [implementation status](docs/project-alignment-status.md). The 85 focused tests pass in the CrystalLLM integration; no target-scale GPU evaluation or measured search speedup is established.
