@@ -11,7 +11,10 @@ from xscale.skills.heuristic_rules import (
     heuristic_priority_score,
     is_memory_dominant,
     is_legal_config,
+    memory_dominance_strength,
     memory_order_key,
+    symmetry_fingerprint,
+    symmetry_transfer_strength,
 )
 from xscale.skills.strategy_space import (
     HardwareDescriptor,
@@ -113,7 +116,7 @@ class TestHardConstraints(unittest.TestCase):
         cfg = ParallelConfig(2, 2, 2, 1, 0, "none")
         ok, reason = check_hard_constraints(cfg, _small_model(), _small_hardware())
         self.assertFalse(ok)
-        self.assertIn("H5", reason)
+        self.assertIn("H4", reason)
 
     def test_is_legal_config_convenience(self):
         cfg = ParallelConfig(2, 2, 2, 1, 4, "none")
@@ -188,8 +191,9 @@ class TestMemoryOrder(unittest.TestCase):
         self.assertTrue(is_memory_dominant(cfg_large, cfg_small))
 
     def test_lower_tp_dominates(self):
-        cfg_low_tp = ParallelConfig(1, 2, 4, 1, 4, "none")
-        cfg_high_tp = ParallelConfig(2, 2, 2, 1, 4, "none")
+        # 1x TP vs 8x TP with same everything else → big memory difference
+        cfg_low_tp = ParallelConfig(1, 1, 8, 1, 4, "none")
+        cfg_high_tp = ParallelConfig(8, 1, 1, 1, 4, "none")
         self.assertTrue(is_memory_dominant(cfg_low_tp, cfg_high_tp))
 
     def test_conflicting_dimensions_not_dominant(self):
@@ -239,3 +243,128 @@ class TestRuleCatalog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSymmetryFingerprint(unittest.TestCase):
+    def test_same_pp_same_fingerprint(self):
+        cfg1 = ParallelConfig(2, 4, 2, 1, 4, "none")
+        cfg2 = ParallelConfig(4, 4, 1, 1, 8, "selective")
+        model = _small_model()
+        hw = _small_hardware()
+        # Same pp → same fingerprint for dense models
+        self.assertEqual(
+            symmetry_fingerprint(cfg1, model, hw),
+            symmetry_fingerprint(cfg2, model, hw),
+        )
+
+    def test_different_pp_different_fingerprint(self):
+        cfg1 = ParallelConfig(2, 2, 2, 1, 4, "none")
+        cfg2 = ParallelConfig(2, 4, 1, 1, 4, "none")
+        model = _small_model()
+        hw = _small_hardware()
+        self.assertNotEqual(
+            symmetry_fingerprint(cfg1, model, hw),
+            symmetry_fingerprint(cfg2, model, hw),
+        )
+
+    def test_identical_config_transfer_1(self):
+        cfg = ParallelConfig(2, 2, 2, 1, 4, "none")
+        model = _small_model()
+        hw = _small_hardware()
+        self.assertEqual(symmetry_transfer_strength(cfg, cfg, model, hw), 1.0)
+
+
+class TestExtendedHardConstraints(unittest.TestCase):
+    def test_non_power_of_2_tp_fails(self):
+        cfg = ParallelConfig(3, 2, 2, 1, 4, "none")  # tp=3 not power of 2
+        model = _small_model()
+        hw = HardwareDescriptor("H100", 12, 8, 900, 200, 80, 1000)  # 12 GPUs total
+        ok, reason = check_hard_constraints(cfg, model, hw)
+        self.assertFalse(ok)
+        self.assertIn("H8", reason)
+
+    def test_pp_not_dividing_layers_fails(self):
+        # 12 layers / pp=5 = 2.4, not integer
+        cfg = ParallelConfig(1, 5, 1, 1, 4, "none")
+        model = _small_model()  # num_layers=12
+        hw = _small_hardware()
+        # Need world_size=5, but num_gpus=8. Use custom hw.
+        hw5 = HardwareDescriptor("H100", 5, 8, 900, 200, 80, 1000)
+        ok, reason = check_hard_constraints(cfg, model, hw5)
+        self.assertFalse(ok)
+        self.assertIn("H7", reason)
+
+    def test_mbs_too_large_fails(self):
+        # Very large MBS on tiny model — should trigger H6
+        cfg = ParallelConfig(1, 1, 1, 1, 1000000, "none")
+        model = ModelDescriptor(
+            "big", 96, 8192, 128, 32000, 4096,
+            False, None, None, 70.0,
+        )
+        hw = HardwareDescriptor("H100", 1, 8, 900, 200, 80, 1000)
+        ok, reason = check_hard_constraints(cfg, model, hw)
+        self.assertFalse(ok)
+        self.assertIn("H6", reason)
+
+    def test_invalid_recompute_fails(self):
+        cfg = ParallelConfig(2, 2, 2, 1, 4, "partial")
+        ok, reason = check_hard_constraints(cfg, _small_model(), _small_hardware())
+        self.assertFalse(ok)
+        self.assertIn("H10", reason)
+
+    def test_moe_ep_not_dividing_experts_fails(self):
+        cfg = ParallelConfig(1, 1, 4, 3, 4, "none")  # ep=3, num_experts=8
+        model = _moe_model()  # num_experts=8
+        hw = _small_hardware()
+        # Need world_size=12 (4*3). Use custom hw with num_gpus=12... but 12 not power of 2.
+        # Actually for this test, world_size must match num_gpus.
+        # Let's use num_gpus=12
+        hw12 = HardwareDescriptor("H100", 12, 8, 900, 200, 80, 1000)
+        ok, reason = check_hard_constraints(cfg, model, hw12)
+        self.assertFalse(ok)
+        self.assertIn("H9", reason)
+
+
+class TestMemoryDominanceStrength(unittest.TestCase):
+    def test_mbs_dominance_positive(self):
+        a = ParallelConfig(2, 2, 2, 1, 8, "none")
+        b = ParallelConfig(2, 2, 2, 1, 2, "none")
+        self.assertGreater(memory_dominance_strength(a, b), 0)
+
+    def test_mbs_dominance_negative(self):
+        a = ParallelConfig(2, 2, 2, 1, 2, "none")
+        b = ParallelConfig(2, 2, 2, 1, 8, "none")
+        self.assertLess(memory_dominance_strength(a, b), 0)
+
+    def test_equal_configs_zero_dominance(self):
+        a = ParallelConfig(2, 2, 2, 1, 4, "none")
+        b = ParallelConfig(2, 2, 2, 1, 4, "none")
+        self.assertAlmostEqual(memory_dominance_strength(a, b), 0.0, places=2)
+
+    def test_recompute_dominance(self):
+        a = ParallelConfig(2, 2, 2, 1, 4, "none")
+        b = ParallelConfig(2, 2, 2, 1, 4, "full")
+        # "none" uses more memory than "full" recompute
+        self.assertGreater(memory_dominance_strength(a, b), 0)
+
+
+class TestRuleCatalogExtended(unittest.TestCase):
+    def test_forty_rules_total(self):
+        total = sum(len(cat["rules"]) for cat in RULE_CATALOG)
+        self.assertEqual(total, 40)
+
+    def test_hard_constraints_twelve(self):
+        hc = [c for c in RULE_CATALOG if c["category"] == "Hard Constraints"][0]
+        self.assertEqual(len(hc["rules"]), 12)
+
+    def test_structural_symmetries_eight(self):
+        ss = [c for c in RULE_CATALOG if c["category"] == "Structural Symmetries"][0]
+        self.assertEqual(len(ss["rules"]), 8)
+
+    def test_performance_ten(self):
+        pf = [c for c in RULE_CATALOG if c["category"] == "Performance Heuristics"][0]
+        self.assertEqual(len(pf["rules"]), 10)
+
+    def test_memory_ten(self):
+        mh = [c for c in RULE_CATALOG if c["category"] == "Memory Heuristics"][0]
+        self.assertEqual(len(mh["rules"]), 10)

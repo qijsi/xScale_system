@@ -410,13 +410,30 @@ class SearchOrchestrator:
     # -- fidelity selection --------------------------------------------------
 
     def _choose_fidelity(self, config: ParallelConfig, level: TrustLevel) -> EvaluationMode:
-        """Choose evaluation fidelity based on trust and candidate value."""
+        """Choose evaluation fidelity based on trust and candidate value.
+
+        Uses structural symmetry transfer: if a config is structurally
+        similar to an already-evaluated config, we can use cheaper
+        fidelity (delta / replay) instead of full REAL.
+        """
+        # Check symmetry transfer — if we have a high-transfer reference,
+        # we can downgrade fidelity
+        transfer = 0.0
+        if self.history.results:
+            feasible = [r.config for r in self.history.results if r.success and not r.oom]
+            _, transfer = self.space.best_transfer_target(config, feasible)
+
         if level == TrustLevel.L0_EXPLORATION:
+            # L0: be conservative — REAL unless very high transfer
+            if transfer > 0.8:
+                return EvaluationMode.REPLAY
             return EvaluationMode.REAL
 
         if level == TrustLevel.L1_CALIBRATING:
             # Only run top candidates at REAL, skip rest via analytical
             if self._is_contender(config):
+                if transfer > 0.6:
+                    return EvaluationMode.REPLAY
                 return EvaluationMode.REAL
             return EvaluationMode.ANALYTICAL
 
@@ -424,10 +441,14 @@ class SearchOrchestrator:
             if self.use_bo:
                 ei = self.bo.expected_improvement(config, self.history.best_latency_ms)
                 if ei > 0.1:
+                    if transfer > 0.5:
+                        return EvaluationMode.REPLAY
                     return EvaluationMode.REAL
                 return EvaluationMode.ANALYTICAL
             # Heuristic: only run if close to best
             if self._is_contender(config):
+                if transfer > 0.5:
+                    return EvaluationMode.REPLAY
                 return EvaluationMode.REAL
             return EvaluationMode.ANALYTICAL
 
@@ -478,15 +499,22 @@ class SearchOrchestrator:
         self._gpu_hours_used += self._estimate_cost(config, fidelity)
         return result
 
-    @staticmethod
-    def _estimate_cost(config: ParallelConfig, fidelity: EvaluationMode) -> float:
-        base = 0.01  # GPU-hours
-        world = config.tp * config.pp * config.dp * config.ep
+    def _estimate_cost(self, config: ParallelConfig, fidelity: EvaluationMode) -> float:
+        """Estimate GPU-hours cost of evaluating ``config`` at ``fidelity``.
+
+        Uses witness count from structural symmetry rules rather than
+        full world size, since compressed execution only runs the
+        unique witness ranks. Higher symmetry → cheaper evaluation.
+        """
+        base = 0.01  # GPU-hours baseline for 64 ranks
         if fidelity == EvaluationMode.ANALYTICAL:
             return base * 0.001
         if fidelity == EvaluationMode.REPLAY:
             return base * 0.3
-        return base * (world / 64.0)
+        # REAL execution: cost scales with witness count, not total GPUs
+        # This reflects structural symmetry compression (S1-S4)
+        witnesses = self.space.estimate_witnesses(config)
+        return base * (witnesses / 64.0)
 
     # -- stopping and verification -------------------------------------------
 

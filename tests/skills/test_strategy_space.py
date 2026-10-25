@@ -93,12 +93,16 @@ class TestMarkResult(unittest.TestCase):
         self.assertIs(after, FeasibilityStatus.FEASIBLE)
         self.assertIn(cfg, update.newly_feasible)
 
-    def test_oom_propagates_to_higher_mbs(self):
+    def test_oom_propagates_to_dominated_configs(self):
         cfg = ParallelConfig(2, 2, 2, 1, 4, "none")
         update = self.space.mark_result(cfg, feasible=False, reason="OOM")
         self.assertTrue(len(update.propagated_infeasible) > 0)
+        from xscale.skills.heuristic_rules import is_memory_dominant
         for p in update.propagated_infeasible:
-            self.assertGreater(p.mbs, cfg.mbs)
+            self.assertTrue(
+                is_memory_dominant(p, cfg),
+                f"{p} should dominate {cfg}"
+            )
 
     def test_coverage_increases_after_marking(self):
         before = self.space.coverage()

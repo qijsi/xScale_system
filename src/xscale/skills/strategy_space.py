@@ -210,6 +210,33 @@ class EvolvingStrategySpace:
         )
         return breakdown.total_witnesses
 
+    def symmetry_transfer(self, cfg_a: ParallelConfig, cfg_b: ParallelConfig) -> float:
+        """How much evaluation knowledge transfers from cfg_a to cfg_b.
+
+        Returns 0.0 (no transfer) to 1.0 (identical). Used for
+        delta-style incremental evaluation: high-transfer configs can
+        reuse most of a previous trace instead of running from scratch.
+        """
+        return heuristic_rules.symmetry_transfer_strength(
+            cfg_a, cfg_b, self.model, self.hardware
+        )
+
+    def best_transfer_target(
+        self, target: ParallelConfig, feasible_configs: list
+    ) -> tuple:
+        """Find the feasible config with highest symmetry transfer to ``target``.
+
+        Returns (best_config, transfer_strength) or (None, 0.0) if none.
+        """
+        best_cfg = None
+        best_score = 0.0
+        for cfg in feasible_configs:
+            score = self.symmetry_transfer(cfg, target)
+            if score > best_score:
+                best_score = score
+                best_cfg = cfg
+        return best_cfg, best_score
+
     def mark_result(
         self, config: ParallelConfig, feasible: bool, reason: str = ""
     ) -> SpaceUpdate:
@@ -281,24 +308,25 @@ class EvolvingStrategySpace:
         return total_gb < self.hardware.vram_per_gpu_gb * 0.9
 
     def _propagate_mbs_infeasibility(self, oom_config: ParallelConfig) -> list[ParallelConfig]:
-        """Mark same-topology configs with larger MBS as likely infeasible."""
+        """Mark memory-dominated configs as likely infeasible.
+
+        Uses multi-dimensional memory dominance (M1-M6 heuristics): a
+        config is dominated if it uses at least as much memory along
+        every major dimension. This catches more cases than the old
+        same-topology MBS rule — e.g. a config with higher MBS *and*
+        lower TP/PP is definitely more memory-intensive.
+        """
         propagated: list[ParallelConfig] = []
         for cfg, status in list(self._status.items()):
-            if cfg.tp != oom_config.tp:
-                continue
-            if cfg.pp != oom_config.pp or cfg.dp != oom_config.dp or cfg.ep != oom_config.ep:
-                continue
-            if cfg.recompute != oom_config.recompute:
-                continue
-            if cfg.mbs <= oom_config.mbs:
-                continue
             if status in (FeasibilityStatus.FEASIBLE, FeasibilityStatus.INFEASIBLE):
                 continue
-            self._status[cfg] = FeasibilityStatus.LIKELY_INFEASIBLE
-            self._infeasibility_reason[cfg] = (
-                f"propagated from OOM at MBS={oom_config.mbs}"
-            )
-            propagated.append(cfg)
+            if heuristic_rules.is_memory_dominant(cfg, oom_config):
+                self._status[cfg] = FeasibilityStatus.LIKELY_INFEASIBLE
+                strength = heuristic_rules.memory_dominance_strength(cfg, oom_config)
+                self._infeasibility_reason[cfg] = (
+                    f"propagated OOM (dominance={strength:.2f})"
+                )
+                propagated.append(cfg)
         return propagated
 
 
