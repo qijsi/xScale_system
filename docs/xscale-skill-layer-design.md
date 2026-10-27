@@ -1,3 +1,5 @@
+> 2026-10-27 研究主线更新：[可精化训练执行图设计](refinable-training-execution-design.md) 是最新设计与里程碑依据。本文保留五模块原型的历史设计/进度；全局 trust 和 RSS/FIS/CEC 不再作为论文核心贡献，新运行时尚未实现。
+
 # xScale Skill Layer Design
 
 ## Purpose

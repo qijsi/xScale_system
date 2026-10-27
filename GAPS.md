@@ -1,3 +1,5 @@
+> Research direction updated 2026-10-27: [docs/refinable-training-execution-design.md](docs/refinable-training-execution-design.md) supersedes the contribution framing and milestone priority below. The graph, storage ledger, summary runtime, and decision-refinement controller remain unimplemented. Adding RSS naming or more heuristics is not a current priority. The following is a historical prototype audit; dated tests are not new runtime evidence.
+
 # Implementation Gaps
 
 This document tracks gaps between the paper's claims and the current

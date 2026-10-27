@@ -1,3 +1,5 @@
+> Research direction updated 2026-10-27: [refinable-training-execution-design.md](refinable-training-execution-design.md) supersedes the contribution framing and milestone priority below. The graph, storage ledger, summary runtime, and decision-refinement controller remain unimplemented. Adding RSS naming or more heuristics is not a current priority. The following is a historical prototype audit; dated tests are not new runtime evidence.
+
 # xScale implementation and evidence status
 
 Updated: 2026-10-25 (Asia/Shanghai).

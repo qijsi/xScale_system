@@ -1,56 +1,38 @@
 # xScale System
 
-Self-evolving parallel strategy search for large-scale LLM training on limited GPUs.
+Research prototype for **decision-directed emulation of LLM parallelism search**.
 
-## Overview
+The current research design separates the complete logical training plan from physical evaluation work on a small GPU platform. Its three proposed contributions are context-aware execution folding, timing/memory-consistent summary execution, and decision-directed refinement. Training still maximizes target throughput subject to per-rank memory capacity; xScale seeks to reduce the measured cost of selecting a high-quality strategy.
 
-xScale is a research prototype for finding efficient parallel execution strategies for large-scale LLM
-training using a trust-calibrated self-evolving loop. Its current orchestrator uses domain heuristics, optional BO, and heuristic trust tracking. The default evaluator is synthetic; S2/S5 and CrystalLLM integration remain incomplete.
+Read the [2026-10-27 design and paper reconciliation](docs/refinable-training-execution-design.md) first. The [paper repository](https://github.com/qijsi/xScale) uses `xScale.tex` as its active entry point.
 
-## Architecture
+## Implementation boundary
 
-Five skill modules:
+The new graph abstraction and runtime are not implemented yet. Existing code provides reusable scaffolding:
 
-| Module | Name | Version | Status |
-|---|---|---|---|
-| **S1** | Strategy Space | v0 | ✅ Implemented |
-| **S2** | Cost Model | v0 | ⚠️ Stub only |
-| **S3** | Structure (RSS/FIS/CEC) | v0 | ⚠️ Known defects |
-| **S4** | Feedback + Trust Calibration | v0 | ⚠️ Adaptive controller + heuristic TrustTracker; integration pending |
-| **S5** | Evaluator | v0 | ⚠️ Stub only |
+| Component | Current state | Role in the new design |
+| --- | --- | --- |
+| S1 | Candidate seeds, neighborhoods and heuristic checks | Candidate generator and baseline |
+| S2 | Cost model stub and result type | Lightweight summary estimates, pending |
+| S3 / witness | Signature partitioning, planning and strategy deltas; known defects | Reuse candidates and invalidation metadata, pending validation |
+| S4 | Separate calibration component; heuristic TrustTracker | Historical baseline; local evidence integration pending |
+| S5 | Evaluator stub and result type | Real-window backend integration, pending |
+| Orchestrator | Synthetic default evaluator, optional policies | Search scaffolding; new refinement control pending |
 
-Three compression metrics:
-- **RSS** (Rank Substitutability Score) — proposed metric; explicit scoring is not implemented
-- **FIS** (Fidelity Impact Score) — how sensitive ranking is to compressing each op
-- **CEC** (Compressed Execution Confidence) — heuristic REAL fraction minus boundary penalty; no probability bound
+RSS/FIS/CEC and global trust are historical heuristics, not probability guarantees or the new paper's main contributions. REAL/REPLAY labels from the default evaluator are synthetic mode labels. See [evidence audit](docs/project-alignment-status.md) and [implementation gaps](GAPS.md).
 
-Four trust levels (L0 → L3): Exploration → Calibrating → Confident → Verifying.
-
-## Quick Start
+## Development checks
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover tests/skills -v
 PYTHONPATH=src python3 -m unittest discover tests/witness -v
 ```
 
-## Project Structure
+The CrystalLLM integration recorded 85 passing focused tests on 2026-10-25. That historical result does not validate the proposed mechanisms. There is no established target-scale GPU accuracy or measured tuning speedup.
 
-```
-src/xscale/
-  skills/          # Five skill modules (S1-S5)
-  witness/         # Low-level witness planning (used by S3)
-tests/
-  skills/          # Skill-layer tests
-  witness/         # Witness-module tests
-docs/
-  xscale-skill-layer-design.md    # Full design doc
-  xscale-skill-layer-progress.md  # Progress tracker
-```
+## Next milestones
 
-## Related Paper
-
-Companion paper repository: [github.com/qijsi/xScale](https://github.com/qijsi/xScale)
-
-## Current evidence
-
-See [implementation status](docs/project-alignment-status.md). The 85 focused tests pass in the CrystalLLM integration; no target-scale GPU evaluation or measured search speedup is established.
+1. Establish target/full-emulation reference executions and measure candidate-evaluation cost.
+2. Implement contextual segment boundaries and a full-model lifetime ledger for static dense models.
+3. Connect representative windows to CrystalLLM and validate timing, memory, and invalidation.
+4. Add budgeted decision refinement and compare quality versus total measured tuning cost.
